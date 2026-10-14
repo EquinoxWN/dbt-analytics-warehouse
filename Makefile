@@ -25,9 +25,9 @@ data:
 build:
 	daw build
 
-# Reconciliation, star schema sizes and two sample BI answers from the built warehouse.
+# Reconciliation, star schema sizes and two sample BI answers from the built warehouse, as pure JSON.
 report:
-	daw report
+	@daw report
 
 # The M1 numbers in docs/results/m1.md: fetch, build and report on the real data.
 bench: data build report
