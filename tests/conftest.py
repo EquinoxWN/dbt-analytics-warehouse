@@ -12,6 +12,13 @@ import pytest
 from dbt_analytics_warehouse import synthetic, warehouse
 
 
+def pytest_configure(config: pytest.Config) -> None:
+    """Create the git-ignored parent of --basetemp, missing on a fresh checkout."""
+    basetemp = config.option.basetemp
+    if basetemp:
+        Path(basetemp).parent.mkdir(parents=True, exist_ok=True)
+
+
 @dataclass(frozen=True)
 class Built:
     """A dbt build over synthetic files, with the outcomes the generator planted."""
