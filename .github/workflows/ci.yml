@@ -44,8 +44,8 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          make build
-          make report | tee report.json
+          make build 2>&1 | tee build.log
+          make report 2>report.err | tee report.json
           python - <<'EOF'
           import json
           r = json.load(open("report.json"))
@@ -62,7 +62,7 @@ jobs:
         if: failure()
         shell: bash
         run: |
-          for f in pytest.log logs/dbt.log; do
+          for f in pytest.log logs/dbt.log build.log report.err; do
             [ -f "$f" ] && tail -n 30 "$f" | python3 -c "import sys; print('::error title=$f (last lines)::' + sys.stdin.read().replace('%', '%25').replace('\r', '').replace('\n', '%0A'))"
           done
           exit 0
