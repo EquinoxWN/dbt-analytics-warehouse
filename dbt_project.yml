@@ -1,0 +1,37 @@
+# dbt project: NYC TLC green taxi trips -> staging -> intermediate -> star schema marts.
+name: analytics_warehouse
+version: "0.1.0"
+config-version: 2
+profile: analytics_warehouse
+require-dbt-version: [">=1.10.0", "<2.0.0"]
+
+model-paths: ["models"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+# dbt singular tests live in data_tests/ so they never mix with the pytest suite in tests/.
+test-paths: ["data_tests"]
+clean-targets: ["target", "logs"]
+
+flags:
+  send_anonymous_usage_stats: false
+
+vars:
+  # Validation limits used by int_green_trips__validated (documented in ADR 0002).
+  max_trip_duration_hours: 24
+  max_trip_distance_miles: 200
+
+models:
+  analytics_warehouse:
+    staging:
+      +materialized: view
+      +schema: staging
+    intermediate:
+      +materialized: table
+      +schema: intermediate
+    marts:
+      +materialized: table
+      +schema: marts
+
+seeds:
+  analytics_warehouse:
+    +schema: reference

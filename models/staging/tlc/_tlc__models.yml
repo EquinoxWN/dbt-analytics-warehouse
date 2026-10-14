@@ -1,0 +1,96 @@
+version: 2
+
+models:
+  - name: stg_tlc__green_trips
+    description: >
+      One row per raw green taxi record, renamed to snake_case and cast to exact types. Staging
+      only renames, casts and cleans codes; it never filters, joins or aggregates.
+    columns:
+      - name: trip_id
+        description: MD5 of every business column of the raw record (NULLs encoded explicitly); exact duplicate records share it.
+        data_tests: [not_null]
+      - name: vendor_id
+        description: LPEP provider code (see the tlc_vendors seed).
+      - name: pickup_at
+        description: Meter engaged (lpep_pickup_datetime), local New York time without zone.
+      - name: dropoff_at
+        description: Meter disengaged (lpep_dropoff_datetime).
+      - name: is_store_and_forward
+        description: True when the record was held in the vehicle before sending; NULL when the flag is missing or not Y/N.
+      - name: rate_code_id
+        description: Final rate code; the dictionary's 99 ("Null/unknown") becomes NULL.
+      - name: pickup_location_id
+        description: TLC taxi zone where the meter was engaged.
+      - name: dropoff_location_id
+        description: TLC taxi zone where the meter was disengaged.
+      - name: passenger_count
+        description: Driver-entered passenger count.
+      - name: trip_distance_miles
+        description: Taximeter distance in miles, two decimals.
+      - name: fare_amount
+        description: Time-and-distance fare in dollars, DECIMAL(12,2).
+      - name: total_amount
+        description: Total charged to passengers in dollars (cash tips are not included by TLC).
+      - name: payment_type_id
+        description: Payment code (see the tlc_payment_types seed).
+      - name: trip_type_id
+        description: 1 street-hail, 2 dispatch.
+      - name: source_file
+        description: Parquet file the record came from (file name only).
+        data_tests: [not_null]
+      - name: source_month
+        description: First day of the month in the file name; TLC publishes one file per month.
+        data_tests: [not_null]
+
+  - name: stg_tlc__taxi_zones
+    description: One row per TLC taxi zone; 'N/A' and 'Unknown' placeholders become NULL.
+    columns:
+      - name: location_id
+        description: TLC taxi zone id (1 to 265).
+        data_tests: [unique, not_null]
+      - name: borough
+        description: Borough name, NULL for the two placeholder zones.
+      - name: zone_name
+        description: Zone name.
+      - name: service_zone
+        description: Boro Zone, Yellow Zone, Airports or EWR.
+
+unit_tests:
+  - name: stg_green_trips_cleans_codes_and_casts_types
+    description: Flags map to booleans, rate code 99 becomes NULL, money rounds to cents, file name and month come from a Windows or POSIX path.
+    model: stg_tlc__green_trips
+    given:
+      - input: source('tlc', 'green_tripdata')
+        # SQL fixtures: DuckDB reads the raw files in place, so dbt cannot introspect their columns.
+        format: sql
+        rows: |
+          select * from (values
+            (2, timestamp '2024-01-05 08:00:00', timestamp '2024-01-05 08:10:00', 'N', 99::bigint, 74, 75, 1::bigint, 1.234, 10.005, 1.0, 0.5, 0.0, 0.0, null::double, 1.0, 12.5, 1::bigint, 1::bigint, 0.0, 'C:\data\raw\green_tripdata_2024-01.parquet'),
+            (1, timestamp '2024-02-01 00:00:00', timestamp '2024-02-01 00:30:00', ' y', 1, 1, 2, 2, 3.0, -5.0, 0.0, 0.0, 0.0, 0.0, null, 0.0, -5.0, 4, 2, 0.0, '/srv/raw/green_tripdata_2024-02.parquet'),
+            (2, timestamp '2024-02-01 00:00:00', timestamp '2024-02-01 00:30:00', 'X', null, 1, 2, null, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, null, 0.0, 0.0, null, null, null, 'green_tripdata_2024-02.parquet')
+          ) as t(VendorID, lpep_pickup_datetime, lpep_dropoff_datetime, store_and_fwd_flag, RatecodeID,
+                 PULocationID, DOLocationID, passenger_count, trip_distance, fare_amount, extra, mta_tax,
+                 tip_amount, tolls_amount, ehail_fee, improvement_surcharge, total_amount, payment_type,
+                 trip_type, congestion_surcharge, filename)
+    expect:
+      rows:
+        - {is_store_and_forward: false, rate_code_id: null, trip_distance_miles: 1.23, fare_amount: 10.01, total_amount: 12.50, source_file: "green_tripdata_2024-01.parquet", source_month: "2024-01-01"}
+        - {is_store_and_forward: true, rate_code_id: 1, trip_distance_miles: 3.00, fare_amount: -5.00, total_amount: -5.00, source_file: "green_tripdata_2024-02.parquet", source_month: "2024-02-01"}
+        - {is_store_and_forward: null, rate_code_id: null, trip_distance_miles: 0.00, fare_amount: 0.00, total_amount: 0.00, source_file: "green_tripdata_2024-02.parquet", source_month: "2024-02-01"}
+
+  - name: stg_taxi_zones_turns_placeholders_into_null
+    model: stg_tlc__taxi_zones
+    given:
+      - input: source('tlc', 'taxi_zone_lookup')
+        format: sql
+        rows: |
+          select * from (values
+            ('1', 'EWR', 'Newark Airport', 'EWR'),
+            (' 264', 'Unknown', 'N/A', 'N/A'),
+            ('265', 'N/A', 'Outside of NYC', 'N/A')
+          ) as t(LocationID, Borough, Zone, service_zone)
+    expect:
+      rows:
+        - {location_id: 1, borough: "EWR", zone_name: "Newark Airport", service_zone: "EWR"}
+        - {location_id: 264, borough: null, zone_name: null, service_zone: null}
+        - {location_id: 265, borough: null, zone_name: "Outside of NYC", service_zone: null}

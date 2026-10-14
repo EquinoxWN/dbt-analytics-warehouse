@@ -1,0 +1,29 @@
+{
+  "description": "Pinned NYC TLC public files (https://www.nyc.gov/site/tlc/about/tlc-trip-record-data.page). Sizes and SHA-256 were recorded on 2026-10-07; a mismatch means TLC republished a file and the pin must be reviewed.",
+  "files": [
+    {
+      "name": "green_tripdata_2024-01.parquet",
+      "url": "https://d37ci6vzurychx.cloudfront.net/trip-data/green_tripdata_2024-01.parquet",
+      "size": 1362284,
+      "sha256": "1512a953bed564ac68dcb622827424dfb4f68ad93c2a4572e50ef6ab0b09c1ad"
+    },
+    {
+      "name": "green_tripdata_2024-02.parquet",
+      "url": "https://d37ci6vzurychx.cloudfront.net/trip-data/green_tripdata_2024-02.parquet",
+      "size": 1283805,
+      "sha256": "cb7eb405ee7e795c9fd6b8ad1b291f46f4e0a1cd60a57067b0aaca2420e8bc5d"
+    },
+    {
+      "name": "green_tripdata_2024-03.parquet",
+      "url": "https://d37ci6vzurychx.cloudfront.net/trip-data/green_tripdata_2024-03.parquet",
+      "size": 1372372,
+      "sha256": "43dedd66dd556acfc38da679a174b6adc32e01dd6dccad14bdfdf1521a14abed"
+    },
+    {
+      "name": "taxi_zone_lookup.csv",
+      "url": "https://d37ci6vzurychx.cloudfront.net/misc/taxi_zone_lookup.csv",
+      "size": 12331,
+      "sha256": "1a99e105092230f8620f301edcca7f80d3080642ff404d28ed957d3fa222c8ed"
+    }
+  ]
+}

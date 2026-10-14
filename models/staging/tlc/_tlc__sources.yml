@@ -1,0 +1,18 @@
+version: 2
+
+# Raw files are read in place by DuckDB; `daw fetch` downloads them (pinned URL, size and SHA-256)
+# into DAW_RAW_DIR (default data/raw). Nothing is copied into a raw schema.
+sources:
+  - name: tlc
+    description: NYC Taxi and Limousine Commission trip record files (public data).
+    tables:
+      - name: green_tripdata
+        description: LPEP green taxi trip records, one parquet file per month, read together.
+        config:
+          meta:
+            external_location: "read_parquet('{{ env_var('DAW_RAW_DIR', 'data/raw') }}/green_tripdata_*.parquet', filename = true, union_by_name = true)"
+      - name: taxi_zone_lookup
+        description: Taxi zone id to borough, zone and service zone (265 rows), read as text and cast in staging.
+        config:
+          meta:
+            external_location: "read_csv('{{ env_var('DAW_RAW_DIR', 'data/raw') }}/taxi_zone_lookup.csv', header = true, all_varchar = true)"

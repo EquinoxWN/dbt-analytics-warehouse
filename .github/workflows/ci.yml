@@ -1,0 +1,70 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Least privilege: the workflow can read the code and nothing else.
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DBT_SEND_ANONYMOUS_USAGE_STATS: "false"
+    steps:
+      # Every action is pinned to a full commit SHA; Dependabot proposes updates.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Install (exact versions from constraints.txt)
+        run: make setup
+      - name: Lint (ruff, mypy --strict, dbt parse --warn-error)
+        run: make lint
+      # The pinned NYC TLC files (about 4 MB); a changed file fails here on its SHA-256.
+      - name: Download pinned public data
+        run: make data
+      - name: Tests (unit, end-to-end on synthetic data, real-data reconciliation)
+        shell: bash
+        run: |
+          set -o pipefail
+          python -m pytest -q -rs 2>&1 | tee pytest.log
+          echo "::notice title=pytest::$(tail -n 1 pytest.log)"
+      - name: Build the warehouse on real data and report
+        shell: bash
+        run: |
+          set -o pipefail
+          make build
+          make report | tee report.json
+          python - <<'EOF'
+          import json
+          r = json.load(open("report.json"))
+          rejected = r["staged_records"] - r["fact_trips"]
+          print(
+              f"::notice title=warehouse::{r['staged_records']} raw records, "
+              f"{r['fact_trips']} in fact_trips, {rejected} rejected with a reason "
+              f"({json.dumps({k: v for k, v in r['outcomes'].items() if k != 'loaded'})}); "
+              f"dim_zone {r['dim_zone_rows']} rows, dim_date {r['dim_date_rows']} rows"
+          )
+          EOF
+          { echo '```json'; cat report.json; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - name: Failing output as an annotation (logs need signing in)
+        if: failure()
+        shell: bash
+        run: |
+          for f in pytest.log logs/dbt.log; do
+            [ -f "$f" ] && tail -n 30 "$f" | python3 -c "import sys; print('::error title=$f (last lines)::' + sys.stdin.read().replace('%', '%25').replace('\r', '').replace('\n', '%0A'))"
+          done
+          exit 0
+      - name: Known-vulnerability audit
+        run: make audit

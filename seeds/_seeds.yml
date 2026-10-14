@@ -1,0 +1,32 @@
+version: 2
+
+# Code lists from the TLC green trip record data dictionary (LPEP), version of March 2025.
+seeds:
+  - name: tlc_vendors
+    description: LPEP provider that sent the record.
+    config:
+      column_types: {vendor_id: integer, vendor_name: varchar}
+    columns:
+      - name: vendor_id
+        data_tests: [unique, not_null]
+  - name: tlc_rate_codes
+    description: Final rate code in effect at the end of the trip (code 99, "Null/unknown", is cleaned to NULL in staging).
+    config:
+      column_types: {rate_code_id: integer, rate_code_name: varchar}
+    columns:
+      - name: rate_code_id
+        data_tests: [unique, not_null]
+  - name: tlc_payment_types
+    description: How the passenger paid for the trip.
+    config:
+      column_types: {payment_type_id: integer, payment_type_name: varchar}
+    columns:
+      - name: payment_type_id
+        data_tests: [unique, not_null]
+  - name: tlc_trip_types
+    description: Whether the trip was a street hail or dispatched.
+    config:
+      column_types: {trip_type_id: integer, trip_type_name: varchar}
+    columns:
+      - name: trip_type_id
+        data_tests: [unique, not_null]

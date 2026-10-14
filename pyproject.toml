@@ -1,0 +1,54 @@
+[build-system]
+requires = ["setuptools>=80"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dbt-analytics-warehouse"
+version = "0.1.0"
+description = "The difference between 'some SQL' and a warehouse a team can trust: tested, documented, version-controlled models on public data."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.11"
+dependencies = [
+    "dbt-core>=1.10,<2",
+    "dbt-duckdb>=1.10,<2",
+    "duckdb>=1.3,<2",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-timeout>=2.3", "ruff>=0.6", "mypy>=1.11", "pip-audit>=2.7"]
+
+[project.scripts]
+daw = "dbt_analytics_warehouse.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["tests"]
+addopts = "--basetemp=.tmp/pytest -p no:cacheprovider"
+timeout = 600
+markers = [
+    "realdata: needs the pinned NYC TLC files in data/raw (run `daw fetch` first)",
+]
+
+[tool.ruff]
+line-length = 100
+extend-exclude = [".tmp", ".venv", "target", "logs", "dbt_packages"]
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "B", "UP", "S", "SIM", "RUF", "N", "C4", "PT", "RET", "PIE", "PERF"]
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S608"]
+"src/dbt_analytics_warehouse/synthetic.py" = ["S311"]
+
+[tool.mypy]
+strict = true
+files = ["src", "tests"]
+
+[[tool.mypy.overrides]]
+module = ["duckdb.*"]
+ignore_missing_imports = true

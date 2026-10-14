@@ -1,0 +1,113 @@
+version: 2
+
+models:
+  - name: int_green_trips__validated
+    description: >
+      Every staged record with one outcome. rejection_reason holds the first rule the record
+      breaks (checked in the order listed under accepted_values) or NULL when it is kept. No row is
+      dropped, so staged rows = kept + rejected for every source file.
+    columns:
+      - name: trip_id
+        data_tests: [not_null]
+      - name: rejection_reason
+        description: First broken rule, or NULL for a valid trip.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values:
+                  - duplicate_record
+                  - missing_timestamp
+                  - dropoff_not_after_pickup
+                  - duration_over_limit
+                  - pickup_outside_file_month
+                  - negative_amount
+                  - distance_out_of_range
+                  - unknown_zone
+      - name: is_valid
+        description: True when rejection_reason is NULL.
+        data_tests: [not_null]
+
+  - name: int_green_trips__enriched
+    description: Valid trips only, joined to pickup and dropoff zones and the TLC code lists, with duration, speed and an airport flag.
+    columns:
+      - name: trip_id
+        description: Unique after de-duplication in int_green_trips__validated.
+        data_tests: [unique, not_null]
+      - name: trip_duration_minutes
+        description: Dropoff minus pickup in minutes, two decimals (always above zero for valid trips).
+      - name: average_speed_mph
+        description: Distance over duration in miles per hour.
+      - name: is_airport_trip
+        description: JFK or Newark rate code, or a pickup or dropoff in an airport service zone.
+
+unit_tests:
+  - name: validated_applies_each_rule_once_in_priority_order
+    description: One record per rule, limits checked on both sides, a duplicate keeps its first copy, and the first broken rule wins.
+    model: int_green_trips__validated
+    overrides:
+      vars: {max_trip_duration_hours: 24, max_trip_distance_miles: 200}
+    given:
+      - input: ref('stg_tlc__taxi_zones')
+        rows:
+          - {location_id: 1}
+          - {location_id: 2}
+      - input: ref('stg_tlc__green_trips')
+        rows:
+          - {trip_id: ok, pickup_at: "2024-01-10 10:00:00", dropoff_at: "2024-01-10 10:20:00", source_month: "2024-01-01", source_file: a, pickup_location_id: 1, dropoff_location_id: 2, total_amount: 20, fare_amount: 15, trip_distance_miles: 3}
+          - {trip_id: dup, pickup_at: "2024-01-10 11:00:00", dropoff_at: "2024-01-10 11:20:00", source_month: "2024-01-01", source_file: a, pickup_location_id: 1, dropoff_location_id: 2, total_amount: 20, fare_amount: 15, trip_distance_miles: 3}
+          - {trip_id: dup, pickup_at: "2024-01-10 11:00:00", dropoff_at: "2024-01-10 11:20:00", source_month: "2024-01-01", source_file: b, pickup_location_id: 1, dropoff_location_id: 2, total_amount: 20, fare_amount: 15, trip_distance_miles: 3}
+          - {trip_id: no_time, pickup_at: null, dropoff_at: "2024-01-10 10:20:00", source_month: "2024-01-01", source_file: a, pickup_location_id: 1, dropoff_location_id: 2, total_amount: 20, fare_amount: 15, trip_distance_miles: 3}
+          - {trip_id: zero_len, pickup_at: "2024-01-10 10:00:00", dropoff_at: "2024-01-10 10:00:00", source_month: "2024-01-01", source_file: a, pickup_location_id: 1, dropoff_location_id: 2, total_amount: 20, fare_amount: 15, trip_distance_miles: 3}
+          - {trip_id: too_long, pickup_at: "2024-01-10 10:00:00", dropoff_at: "2024-01-11 10:00:01", source_month: "2024-01-01", source_file: a, pickup_location_id: 1, dropoff_location_id: 2, total_amount: 20, fare_amount: 15, trip_distance_miles: 3}
+          - {trip_id: day_long, pickup_at: "2024-01-10 10:00:00", dropoff_at: "2024-01-11 10:00:00", source_month: "2024-01-01", source_file: a, pickup_location_id: 1, dropoff_location_id: 2, total_amount: 20, fare_amount: 15, trip_distance_miles: 3}
+          - {trip_id: wrong_month, pickup_at: "2023-12-31 23:50:00", dropoff_at: "2024-01-01 00:10:00", source_month: "2024-01-01", source_file: a, pickup_location_id: 1, dropoff_location_id: 2, total_amount: 20, fare_amount: 15, trip_distance_miles: 3}
+          - {trip_id: refund, pickup_at: "2024-01-10 10:00:00", dropoff_at: "2024-01-10 10:20:00", source_month: "2024-01-01", source_file: a, pickup_location_id: 1, dropoff_location_id: 2, total_amount: -20, fare_amount: -15, trip_distance_miles: 3}
+          - {trip_id: far, pickup_at: "2024-01-10 10:00:00", dropoff_at: "2024-01-10 10:20:00", source_month: "2024-01-01", source_file: a, pickup_location_id: 1, dropoff_location_id: 2, total_amount: 20, fare_amount: 15, trip_distance_miles: 200.01}
+          - {trip_id: far_ok, pickup_at: "2024-01-10 10:00:00", dropoff_at: "2024-01-10 14:20:00", source_month: "2024-01-01", source_file: a, pickup_location_id: 1, dropoff_location_id: 2, total_amount: 20, fare_amount: 15, trip_distance_miles: 200}
+          - {trip_id: nowhere, pickup_at: "2024-01-10 10:00:00", dropoff_at: "2024-01-10 10:20:00", source_month: "2024-01-01", source_file: a, pickup_location_id: 1, dropoff_location_id: 999, total_amount: 20, fare_amount: 15, trip_distance_miles: 3}
+          - {trip_id: two_faults, pickup_at: "2024-01-10 10:20:00", dropoff_at: "2024-01-10 10:00:00", source_month: "2024-01-01", source_file: a, pickup_location_id: 999, dropoff_location_id: 2, total_amount: -20, fare_amount: -15, trip_distance_miles: 3}
+    expect:
+      rows:
+        - {trip_id: ok, source_file: a, rejection_reason: null, is_valid: true}
+        - {trip_id: dup, source_file: a, rejection_reason: null, is_valid: true}
+        - {trip_id: dup, source_file: b, rejection_reason: duplicate_record, is_valid: false}
+        - {trip_id: no_time, source_file: a, rejection_reason: missing_timestamp, is_valid: false}
+        - {trip_id: zero_len, source_file: a, rejection_reason: dropoff_not_after_pickup, is_valid: false}
+        - {trip_id: too_long, source_file: a, rejection_reason: duration_over_limit, is_valid: false}
+        - {trip_id: day_long, source_file: a, rejection_reason: null, is_valid: true}
+        - {trip_id: wrong_month, source_file: a, rejection_reason: pickup_outside_file_month, is_valid: false}
+        - {trip_id: refund, source_file: a, rejection_reason: negative_amount, is_valid: false}
+        - {trip_id: far, source_file: a, rejection_reason: distance_out_of_range, is_valid: false}
+        - {trip_id: far_ok, source_file: a, rejection_reason: null, is_valid: true}
+        - {trip_id: nowhere, source_file: a, rejection_reason: unknown_zone, is_valid: false}
+        - {trip_id: two_faults, source_file: a, rejection_reason: dropoff_not_after_pickup, is_valid: false}
+
+  - name: enriched_derives_measures_and_labels
+    description: Duration, speed and the airport flag are derived; codes missing from the code lists get 'Unknown'; invalid trips are left out.
+    model: int_green_trips__enriched
+    given:
+      - input: ref('int_green_trips__validated')
+        rows:
+          - {trip_id: t1, is_valid: true, pickup_at: "2024-03-01 23:30:00", dropoff_at: "2024-03-02 00:00:00", pickup_location_id: 1, dropoff_location_id: 2, vendor_id: 2, rate_code_id: 2, payment_type_id: 1, trip_type_id: 1, trip_distance_miles: 10, total_amount: 70}
+          - {trip_id: t2, is_valid: true, pickup_at: "2024-03-01 08:00:00", dropoff_at: "2024-03-01 08:06:00", pickup_location_id: 2, dropoff_location_id: 2, vendor_id: 9, rate_code_id: null, payment_type_id: null, trip_type_id: 7, trip_distance_miles: 1.5, total_amount: 9}
+          - {trip_id: t3, is_valid: false, pickup_at: "2024-03-01 08:00:00", dropoff_at: "2024-03-01 08:00:00", pickup_location_id: 2, dropoff_location_id: 2, total_amount: 9}
+      - input: ref('stg_tlc__taxi_zones')
+        rows:
+          - {location_id: 1, borough: Queens, zone_name: JFK Airport, service_zone: Airports}
+          - {location_id: 2, borough: Brooklyn, zone_name: Bushwick North, service_zone: Boro Zone}
+      - input: ref('tlc_vendors')
+        rows:
+          - {vendor_id: 2, vendor_name: "Curb Mobility, LLC"}
+      - input: ref('tlc_rate_codes')
+        rows:
+          - {rate_code_id: 2, rate_code_name: JFK}
+      - input: ref('tlc_payment_types')
+        rows:
+          - {payment_type_id: 1, payment_type_name: Credit card}
+      - input: ref('tlc_trip_types')
+        rows:
+          - {trip_type_id: 1, trip_type_name: Street-hail}
+    expect:
+      rows:
+        - {trip_id: t1, pickup_date: "2024-03-01", pickup_hour: 23, pickup_borough: Queens, dropoff_zone_name: Bushwick North, vendor_name: "Curb Mobility, LLC", rate_code_name: JFK, payment_type_name: Credit card, trip_type_name: Street-hail, trip_duration_minutes: 30.00, average_speed_mph: 20.00, is_airport_trip: true}
+        - {trip_id: t2, pickup_date: "2024-03-01", pickup_hour: 8, pickup_borough: Brooklyn, dropoff_zone_name: Bushwick North, vendor_name: Unknown, rate_code_name: Unknown, payment_type_name: Unknown, trip_type_name: Unknown, trip_duration_minutes: 6.00, average_speed_mph: 15.00, is_airport_trip: false}

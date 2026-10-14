@@ -1,0 +1,30 @@
+.DS_Store
+.env
+.idea/
+.vscode/
+*.log
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+dist/
+build/
+*.egg-info/
+
+# Claude Code files (never committed)
+.claude/
+CLAUDE.local.md
+CLAUDE.md
+.mcp.json
+
+# Local tool caches, downloaded data and dbt output (kept inside the repo, never committed)
+.tmp/
+.mypy_cache/
+data/
+target/
+logs/
+dbt_packages/
+.user.yml
+*.duckdb
+*.duckdb.wal

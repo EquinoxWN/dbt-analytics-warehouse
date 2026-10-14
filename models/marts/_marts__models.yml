@@ -1,0 +1,139 @@
+version: 2
+
+# The star schema BI tools read. Each mart has an enforced contract: dbt refuses to build it if a
+# column is renamed, dropped, added or changes type, so a dashboard never breaks silently.
+
+models:
+  - name: fact_trips
+    description: One row per valid, de-duplicated green taxi trip. Joins to dim_date on pickup_date_key and to dim_zone twice (pickup and dropoff).
+    config:
+      contract: {enforced: true}
+    columns:
+      - name: trip_id
+        data_type: varchar
+        description: Surrogate key (MD5 of the raw record's business columns).
+        constraints: [{type: not_null}]
+        data_tests: [unique, not_null]
+      - name: pickup_date_key
+        data_type: integer
+        description: Pickup date as yyyymmdd, foreign key to dim_date.
+        constraints: [{type: not_null}]
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('dim_date'), field: date_key}
+      - name: pickup_zone_key
+        data_type: integer
+        description: Foreign key to dim_zone for the pickup zone.
+        constraints: [{type: not_null}]
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('dim_zone'), field: zone_key}
+      - name: dropoff_zone_key
+        data_type: integer
+        description: Foreign key to dim_zone for the dropoff zone.
+        constraints: [{type: not_null}]
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('dim_zone'), field: zone_key}
+      - {name: pickup_at, data_type: timestamp, description: "Meter engaged."}
+      - {name: dropoff_at, data_type: timestamp, description: "Meter disengaged."}
+      - {name: pickup_hour, data_type: integer, description: "Hour of day of the pickup (0 to 23)."}
+      - {name: vendor_name, data_type: varchar, description: "LPEP provider, 'Unknown' when the code is not in the code list."}
+      - {name: rate_code_name, data_type: varchar, description: "Final rate code name or 'Unknown'."}
+      - {name: payment_type_name, data_type: varchar, description: "Payment type name or 'Unknown'."}
+      - {name: trip_type_name, data_type: varchar, description: "Street-hail, Dispatch or 'Unknown'."}
+      - {name: is_store_and_forward, data_type: boolean, description: "Record was held in the vehicle before sending."}
+      - {name: is_airport_trip, data_type: boolean, description: "JFK or Newark rate, or an airport pickup or dropoff zone."}
+      - {name: passenger_count, data_type: integer, description: "Driver-entered passenger count."}
+      - {name: trip_distance_miles, data_type: "decimal(12,2)", description: "Taximeter distance (0 to 200 miles)."}
+      - {name: trip_duration_minutes, data_type: "decimal(10,2)", description: "Dropoff minus pickup (above 0, at most 24 hours)."}
+      - {name: average_speed_mph, data_type: "decimal(10,2)", description: "Distance over duration."}
+      - {name: fare_amount, data_type: "decimal(12,2)", description: "Time-and-distance fare in dollars."}
+      - {name: extra_amount, data_type: "decimal(12,2)", description: "Rush hour and overnight extras."}
+      - {name: mta_tax_amount, data_type: "decimal(12,2)", description: "MTA tax."}
+      - {name: tip_amount, data_type: "decimal(12,2)", description: "Card tips (cash tips are not recorded)."}
+      - {name: tolls_amount, data_type: "decimal(12,2)", description: "Tolls paid in the trip."}
+      - {name: improvement_surcharge_amount, data_type: "decimal(12,2)", description: "Improvement surcharge."}
+      - {name: congestion_surcharge_amount, data_type: "decimal(12,2)", description: "New York State congestion surcharge."}
+      - {name: total_amount, data_type: "decimal(12,2)", description: "Total charged to the passenger (excluding cash tips)."}
+      - {name: source_file, data_type: varchar, description: "Raw file the trip came from (lineage back to the download)."}
+
+  - name: dim_zone
+    description: One row per TLC taxi zone (265 in the pinned lookup), with 'Unknown' instead of NULL labels.
+    config:
+      contract: {enforced: true}
+    columns:
+      - name: zone_key
+        data_type: integer
+        description: TLC location id.
+        constraints: [{type: not_null}, {type: primary_key}]
+        data_tests: [unique, not_null]
+      - {name: borough, data_type: varchar, description: "Borough or 'Unknown'."}
+      - {name: zone_name, data_type: varchar, description: "Zone name or 'Unknown'."}
+      - {name: service_zone, data_type: varchar, description: "Boro Zone, Yellow Zone, Airports, EWR or 'Unknown'."}
+      - {name: is_airport, data_type: boolean, description: "JFK, LaGuardia or Newark."}
+
+  - name: dim_date
+    description: One row per day for every calendar year that has a loaded trip (whole years, so BI filters never hit a gap).
+    config:
+      contract: {enforced: true}
+    columns:
+      - name: date_key
+        data_type: integer
+        description: Date as yyyymmdd.
+        constraints: [{type: not_null}, {type: primary_key}]
+        data_tests: [unique, not_null]
+      - name: date_day
+        data_type: date
+        data_tests: [unique, not_null]
+      - {name: year_number, data_type: integer}
+      - {name: quarter_number, data_type: integer}
+      - {name: month_number, data_type: integer}
+      - {name: month_name, data_type: varchar}
+      - {name: day_of_month, data_type: integer}
+      - {name: day_of_year, data_type: integer}
+      - {name: iso_day_of_week, data_type: integer, description: "1 = Monday to 7 = Sunday."}
+      - {name: day_name, data_type: varchar}
+      - {name: is_weekend, data_type: boolean, description: "Saturday or Sunday."}
+      - {name: iso_week_number, data_type: integer}
+
+  - name: audit_trip_outcomes
+    description: Where every raw record went, per source file - 'loaded' into fact_trips or the rejection reason - with record counts and money involved.
+    columns:
+      - name: source_file
+        data_tests: [not_null]
+      - name: outcome
+        data_tests: [not_null]
+      - name: trip_count
+      - name: total_amount
+
+unit_tests:
+  - name: dim_date_covers_whole_years_with_correct_attributes
+    description: >
+      One trip on 29 February 2024 gives all 366 days of 2024. Expected attributes are computed
+      with different DuckDB functions (extract, dayname, monthname) than the model uses.
+    model: dim_date
+    given:
+      - input: ref('int_green_trips__enriched')
+        rows:
+          - {pickup_date: "2024-02-29"}
+    expect:
+      format: sql
+      rows: |
+        select
+            extract(year from d) * 10000 + extract(month from d) * 100 + extract(day from d) as date_key,
+            d as date_day,
+            extract(year from d) as year_number,
+            (extract(month from d) + 2) // 3 as quarter_number,
+            extract(month from d) as month_number,
+            monthname(d) as month_name,
+            extract(day from d) as day_of_month,
+            d - date '2023-12-31' as day_of_year,
+            extract(isodow from d) as iso_day_of_week,
+            dayname(d) as day_name,
+            dayname(d) in ('Saturday', 'Sunday') as is_weekend,
+            extract(week from d) as iso_week_number
+        from (select cast(range as date) as d from range(date '2024-01-01', date '2025-01-01', interval 1 day))
